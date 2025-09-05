@@ -1,13 +1,20 @@
-// Mutant Zombie Mod for EaglerForge
 
-// Register Formula Y potion item
+// Mutant Zombie Mod for EaglerForge 1.8.8
+// Assets by ProChatter
+
+//////////////////////
+// Item Registries  //
+//////////////////////
+
+// Formula Y splash potion
 ItemRegistry.registerItem("formula_y", {
     name: "Formula Y",
-    texture: "https://github.com/D3vToo1s/eaglerforge-mod-assets/raw/main/formula-y.png",
-    maxStack: 16
+    texture: "https://raw.githubusercontent.com/D3vToo1s/eaglerforge-mod-assets/main/formula-y.png",
+    maxStack: 16,
+    type: "splash_potion"
 });
 
-// Crafting recipe for Formula Y (4 Obsidian + Water Bottle)
+// Crafting recipe for Formula Y (4 obsidian + water bottle)
 CraftingRegistry.registerShapelessRecipe("formula_y_recipe", {
     output: { id: "formula_y", count: 1 },
     ingredients: [
@@ -16,74 +23,148 @@ CraftingRegistry.registerShapelessRecipe("formula_y_recipe", {
     ]
 });
 
-// Register Hulk Hammer weapon
+// Hulk Hammer weapon
 ItemRegistry.registerItem("hulk_hammer", {
     name: "Hulk Hammer",
-    texture: "https://github.com/D3vToo1s/eaglerforge-mod-assets/raw/main/hulkhammer.png",
+    texture: "https://raw.githubusercontent.com/D3vToo1s/eaglerforge-mod-assets/main/hulkhammer.png",
     maxStack: 1,
     durability: 512,
     type: "weapon",
-    damage: 15,
+    damage: 12, // base melee damage
     rightClick: (player, world) => {
         if (!player.hasCooldown("hulk_hammer")) {
             player.setCooldown("hulk_hammer", 100); // 5 sec cooldown
-            world.createExplosion(player.position, 3.0); // ground slam effect
-            player.sendMessage("💥 Hulk Slam!");
+            world.createExplosion(player.position, 2.0);
+            player.sendMessage("💥 Hulk Ground Smash! (12 dmg)");
         }
     }
 });
 
-// Register Mutant Zombie entity
+//////////////////////
+// Entity Registry  //
+//////////////////////
+
 EntityRegistry.registerEntity("mutant_zombie", {
     name: "Mutant Zombie",
     model: "zombie",
-    texture: "https://github.com/D3vToo1s/eaglerforge-mod-assets/raw/main/mutantzombie.png",
-    health: 200,
-    damage: 20,
+    texture: "https://raw.githubusercontent.com/D3vToo1s/eaglerforge-mod-assets/main/mutantzombie.png",
+    health: 150,
+    damage: 12,
     speed: 0.35,
     drops: [
-        { id: "hulk_hammer", count: 1, chance: 0.25 }, // 25% chance
         { id: "rotten_flesh", count: 5, chance: 1.0 }
     ],
     spawnEgg: true,
     naturalSpawn: {
         biome: "all",
-        chance: 0.05, // 5% spawn rate at night
+        chance: 0.05, // 5% spawn chance at night
         condition: (world) => world.isNight()
     }
 });
 
-// Register custom roar sound
+//////////////////////
+// Sounds           //
+//////////////////////
+
 SoundRegistry.registerSound("mutant_roar", {
-    src: "https://github.com/D3vToo1s/eaglerforge-mod-assets/raw/main/MutantZombieRoar.ogg"
+    src: "https://raw.githubusercontent.com/D3vToo1s/eaglerforge-mod-assets/main/MutantZombieRoar.ogg"
 });
 
-// Mutation mechanic: zombie → mutant zombie when hit by Formula Y
-Events.on("entityHit", (event) => {
-    if (event.attacker && event.attacker.isPlayer() && event.itemUsed === "formula_y") {
-        if (event.target.type === "zombie") {
-            // Replace with mutant zombie
-            World.spawnEntity("mutant_zombie", event.target.position);
-            event.target.remove();
+//////////////////////
+// Events           //
+//////////////////////
 
-            // Play roar sound
-            Sound.play("mutant_roar", event.target.position);
+// Mutation mechanic (Formula Y -> Mutant Zombie)
+Events.on("potionSplash", (event) => {
+    if (event.potion.id === "formula_y") {
+        event.affectedEntities.forEach(entity => {
+            if (entity.type === "zombie") {
+                World.spawnEntity("mutant_zombie", entity.position);
+                entity.remove();
+                Sound.play("mutant_roar", entity.position);
+                event.thrower.sendMessage("⚡ The zombie has mutated into a Mutant Zombie!");
+            }
+        });
+    }
+});
 
-            event.attacker.sendMessage("⚡ The zombie has mutated into a Mutant Zombie!");
+// Mutant Zombie roar when attacking
+Events.on("entityAttack", (event) => {
+    if (event.attacker && event.attacker.type === "mutant_zombie") {
+        Sound.play("mutant_roar", event.attacker.position);
+
+        // 25% chance to trigger jump smash
+        if (Math.random() < 0.25) {
+            event.victim.damage(21);
+            event.victim.knockback(2.0, event.attacker.position);
+            event.attacker.world.createExplosion(event.victim.position, 1.5);
+            event.attacker.sendMessage("💥 Mutant Zombie used Jump Smash!");
         }
     }
 });
 
-// Mutant Zombie roar on attack
-Events.on("entityAttack", (event) => {
-    if (event.attacker && event.attacker.type === "mutant_zombie") {
-        Sound.play("mutant_roar", event.attacker.position);
-    }
-});
-
-// Mutant Zombie roar when it spawns
+// Mutant Zombie roar on spawn
 Events.on("entitySpawn", (event) => {
     if (event.entity.type === "mutant_zombie") {
         Sound.play("mutant_roar", event.entity.position);
     }
 });
+
+//////////////////////
+// Revival System   //
+//////////////////////
+
+const revivalData = new Map();
+
+Events.on("entityDeath", (event) => {
+    const entity = event.entity;
+    if (entity.type === "mutant_zombie") {
+        let revives = revivalData.get(entity.uuid) || 0;
+
+        if (revives < 3) {
+            event.cancel(); // prevent true death
+            revives++;
+            revivalData.set(entity.uuid, revives);
+
+            // Collapse (simulate lying down)
+            entity.setAI(false);
+            entity.setHealth(1);
+            Sound.play("mutant_roar", entity.position);
+            entity.world.broadcastMessage("⚡ The Mutant Zombie collapses... (" + revives + "/3)");
+
+            // Glowing particle effect while down
+            let interval = setInterval(() => {
+                entity.world.spawnParticle("portal", entity.position, 0.5, 0.5, 0.5, 10);
+                entity.world.spawnParticle("crit_magic", entity.position, 0.5, 0.5, 0.5, 5);
+            }, 300);
+
+            // Stand up again after 3 seconds
+            setTimeout(() => {
+                clearInterval(interval);
+                entity.setHealth(50);
+                entity.setAI(true);
+                Sound.play("mutant_roar", entity.position);
+                entity.world.broadcastMessage("⚡ The Mutant Zombie rises again with rage!");
+            }, 3000);
+
+        } else {
+            // Final death after 3 revives
+            revivalData.delete(entity.uuid);
+
+            // Spawn 5 baby zombies
+            for (let i = 0; i < 5; i++) {
+                entity.world.spawnEntity("zombie", {
+                    position: entity.position,
+                    baby: true
+                });
+            }
+
+            // Drop Hulk Hammer guaranteed
+            entity.world.dropItem("hulk_hammer", entity.position);
+
+            Sound.play("mutant_roar", entity.position);
+            entity.world.broadcastMessage("💀 The Mutant Zombie has finally been defeated!");
+        }
+    }
+});
+
