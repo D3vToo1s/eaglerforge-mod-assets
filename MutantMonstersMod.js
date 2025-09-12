@@ -1,6 +1,6 @@
 
 // Mutant Zombie Mod for EaglerForge 1.8.8
-// Assets by ProChatter
+// Assets by me
 
 //////////////////////
 // Item Registries  //
